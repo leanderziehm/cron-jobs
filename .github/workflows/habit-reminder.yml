@@ -1,0 +1,68 @@
+name: Habit Reminder
+
+on:
+  schedule:
+    # Runs every day at 01:20 UTC
+    - cron: '20 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check if 3 days have passed
+        id: check
+        run: |
+          TODAY=$(date -u +%Y-%m-%d)
+
+          if [ ! -f .last-habit-reminder ]; then
+            echo "No previous reminder found. Sending now."
+            echo "send=true" >> "$GITHUB_OUTPUT"
+          else
+            LAST=$(cat .last-habit-reminder)
+
+            TODAY_SECONDS=$(date -d "$TODAY" +%s)
+            LAST_SECONDS=$(date -d "$LAST" +%s)
+
+            DAYS=$(( (TODAY_SECONDS - LAST_SECONDS) / 86400 ))
+
+            echo "Last reminder: $LAST"
+            echo "Today: $TODAY"
+            echo "Days since last reminder: $DAYS"
+
+            if [ "$DAYS" -ge 3 ]; then
+              echo "send=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "send=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Send reminder
+        if: steps.check.outputs.send == 'true'
+        run: |
+          curl --fail-with-body -X POST \
+            'https://notify.leanderziehm.com/notify/me' \
+            -H 'accept: application/json' \
+            -H 'Content-Type: application/json' \
+            -d '{
+              "text": "habit: special shampoo Today"
+            }'
+
+      - name: Save reminder date
+        if: steps.check.outputs.send == 'true'
+        run: |
+          date -u +%Y-%m-%d > .last-habit-reminder
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add .last-habit-reminder
+          git diff --cached --quiet || git commit -m "Update habit reminder date"
+          git push
